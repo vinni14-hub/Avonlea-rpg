@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Avonlea RPG Multiplayer</title>
+<style>
+body{font-family:system-ui;margin:0;background:#f4efe7;color:#29251f}
+main{max-width:720px;margin:auto;padding:20px}
+.card{background:#fff;border:1px solid #ddd3c5;border-radius:18px;padding:18px;margin:12px 0}
+input,button,textarea{font:inherit;padding:12px;border-radius:12px;border:1px solid #cfc4b5}
+input,textarea{width:100%;box-sizing:border-box;margin:6px 0 10px}
+button{cursor:pointer;background:#795735;color:#fff;font-weight:700}
+button.secondary{background:#e9dfd2;color:#29251f}
+button:disabled{opacity:.5;cursor:not-allowed}
+.hidden{display:none}.chars{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.char{background:#eee7dd;color:#29251f}.selected{outline:3px solid #795735}
+#log{max-height:260px;overflow:auto}.line{padding:8px 0;border-bottom:1px solid #eee}
+.badge{display:inline-block;padding:6px 9px;border-radius:999px;background:#eee7dd;margin:3px}
+.active{background:#795735;color:#fff}
+.small{color:#766d62;font-size:.9rem}
+</style>
+</head>
+<body><main>
+<h1>🌿 Avonlea RPG</h1>
+<p class="small">Multiplayer por sala • 7 personagens • turnos</p>
+
+<section id="home" class="card">
+<h2>Entrar ou criar sala</h2>
+<label>Seu nome</label><input id="name" placeholder="Ex.: Vinicius">
+<label>Código da sala</label><input id="room" placeholder="Ex.: AVON123" maxlength="12">
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button id="create">Criar sala</button><button class="secondary" id="join">Entrar na sala</button>
+</div>
+<p id="status" class="small"></p>
+</section>
+
+<section id="lobby" class="card hidden">
+<h2>Sala <span id="roomLabel"></span></h2>
+<p>Escolha seu personagem:</p>
+<div id="chars" class="chars"></div>
+<h3>Jogadores</h3><div id="players"></div>
+<button id="start" disabled>Começar RPG</button>
+<p id="lobbyMsg" class="small"></p>
+</section>
+
+<section id="game" class="hidden">
+<div class="card">
+<h2>Vez de: <span id="turn"></span></h2>
+<p id="scene">Você está em sua casa. O que vai fazer?</p>
+<textarea id="action" rows="4" placeholder="Escreva sua ação..." disabled></textarea>
+<button id="send" disabled>Enviar ação</button>
+<button id="skip" class="secondary" disabled>Pular minha vez</button>
+<div id="roll"></div>
+</div>
+<div class="card"><h3>Jogadores</h3><div id="gamePlayers"></div></div>
+<div class="card"><h3>Histórico</h3><div id="log"></div></div>
+</section>
+
+<script>
+/*
+  DEMO MULTIPLAYER:
+  Esta página usa BroadcastChannel quando aberta em várias abas no mesmo aparelho.
+  Para celulares diferentes, publique este arquivo e conecte-o a um backend/WebSocket.
+  A interface e todas as regras do RPG já estão prontas.
+*/
+const chars=["Vitor","Davi","Bernardo","Sandro","Vinicius","Luis","Rafael"];
+const order=["Vitor","Sandro","Bernardo","Vinicius","Davi","Luis","Rafael"];
+let me={name:"",char:""}, room="", state=null, channel=null;
+
+const $=id=>document.getElementById(id);
+function code(){return Math.random().toString(36).slice(2,8).toUpperCase()}
+function save(){if(channel) channel.postMessage({type:"state",state})}
+function renderChars(){
+  $("chars").innerHTML=chars.map(c=>`<button class="char ${me.char===c?"selected":""}" data-c="${c}" ${state?.players?.some(p=>p.char===c)?'disabled':''}>${c}</button>`).join("");
+  document.querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{me.char=b.dataset.c; renderChars(); joinState();});
+}
+function joinState(){
+  if(!state)return;
+  const old=state.players.find(p=>p.id===me.id);
+  if(old) old.name=me.name, old.char=me.char;
+  else state.players.push({id:me.id,name:me.name,char:me.char});
+  save(); renderLobby();
+}
+function renderLobby(){
+  $("players").innerHTML=(state?.players||[]).map(p=>`<span class="badge">${p.name} — ${p.char}</span>`).join("");
+  $("roomLabel").textContent=room;
+  $("start").disabled=state.players.length<1;
+  renderChars();
+}
+function add(t){$("log").innerHTML+=`<div class="line">${t}</div>`}
+function diff(s){let d=8;if(/roubar|invadir|fugir|lutar|enganar/i.test(s))d=14;else if(/convencer|investigar|esconder|arrombar|negociar/i.test(s))d=12;else if(/ajudar|procurar|viajar|conversar/i.test(s))d=9;return Math.min(19,d)}
+function renderGame(){
+  $("lobby").classList.add("hidden");$("home").classList.add("hidden");$("game").classList.remove("hidden");
+  const turn=state.order[state.turnIndex];
+  $("turn").textContent=turn;
+  const mine=me.char===turn;
+  $("action").disabled=!mine || !!state.pending;
+  $("send").disabled=!mine || !!state.pending;
+  $("skip").disabled=!mine || !!state.pending;
+  $("scene").textContent=mine?`Você está em sua casa. O que vai fazer, ${me.char}?`:`Agora é a vez de ${turn}. Aguarde.`;
+  $("gamePlayers").innerHTML=state.players.map(p=>`<span class="badge ${p.char===turn?'active':''}">${p.name} — ${p.char}</span>`).join("");
+  $("roll").innerHTML=state.pending?`<div class="card"><b>${state.pending.by}</b> precisa tirar <b>${state.pending.dc}</b> ou mais no d20.<br><button id="rollBtn" ${state.pending.by!==me.char?'disabled':''}>🎲 Rolar d20</button></div>`:"";
+  if(state.pending && state.pending.by===me.char) $("rollBtn").onclick=()=>{let r=Math.floor(Math.random()*20)+1;state.pending.result=r;state.pending.success=r>=state.pending.dc;save();renderGame()};
+  if(state.pending?.result!==undefined){$("roll").innerHTML+=`<p>🎲 Resultado: <b>${state.pending.result}</b> — ${state.pending.success?"✅ Sucesso!":"❌ Falhou."}<br><button id="finish">Encerrar minha vez</button></p>`;if(state.pending.by===me.char)$("finish").onclick=()=>{add(`<b>${me.char}</b> terminou a ação.`);state.pending=null;state.turnIndex=(state.turnIndex+1)%state.order.length;save();renderGame()}}
+  $("log").innerHTML=state.log.join("");
+}
+function makeState(){return {players:[],order:order,turnIndex:0,pending:null,log:["<div class='line'>A sala foi criada. Escolham seus personagens.</div>"],started:false}}
+function setup(){
+ me.name=$("name").value.trim()||"Jogador";
+ me.id=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36);
+ room=$("room").value.trim().toUpperCase()||code(); $("room").value=room;
+ try{channel=new BroadcastChannel("avonlea-"+room);channel.onmessage=e=>{if(e.data.type==="state"){state=e.data.state;if(state.started)renderGame();else renderLobby()}}}catch(e){$("status").textContent="Seu navegador não oferece comunicação entre abas. Publique o arquivo em um site para o multiplayer completo."}
+}
+$("create").onclick=()=>{setup();state=makeState();$("home").classList.add("hidden");$("lobby").classList.remove("hidden");renderLobby();add("<b>"+me.name+"</b> criou a sala.");save()};
+$("join").onclick=()=>{setup();$("home").classList.add("hidden");$("lobby").classList.remove("hidden");if(!state){state=makeState()}joinState();renderLobby()};
+$("start").onclick=()=>{if(state.players.length<1)return;state.started=true;state.log.push("<div class='line'>🎬 RPG iniciado! Ordem: Vitor → Sandro → Bernardo → Vinicius → Davi → Luis → Rafael.</div>");save();renderGame()};
+$("send").onclick=()=>{let a=$("action").value.trim();if(!a)return;state.pending={by:me.char,action:a,dc:diff(a)};state.log.push(`<div class='line'><b>${me.char}</b>: “${a}”<br>🎯 Precisa tirar <b>${state.pending.dc}</b> ou mais.</div>`);$("action").value="";save();renderGame()};
+$("skip").onclick=()=>{state.log.push(`<div class='line'><b>${me.char}</b> pulou a vez.</div>`);state.turnIndex=(state.turnIndex+1)%state.order.length;save();renderGame()};
+</script>
+</main></body></html>
