@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RPG Multiplayer</title>
+<style>
+body{margin:0;background:#17131f;color:#fff;font-family:Arial;padding:16px}main{max-width:760px;margin:auto}.box{background:#272131;padding:16px;border-radius:16px;margin:12px 0}input{padding:12px;border:0;border-radius:10px;width:65%;box-sizing:border-box}button{padding:12px 16px;border:0;border-radius:10px;background:#7554ff;color:#fff;font-weight:bold}#chat{height:220px;overflow:auto;background:#18141f;padding:10px;border-radius:10px}.msg{padding:7px;border-bottom:1px solid #3b3447}#dice{text-align:center;font-size:65px;margin:15px}.hide{display:none}.muted{opacity:.75}
+</style></head><body><main>
+<h1>🎲 RPG Multiplayer</h1>
+<section id="join" class="box"><h2>Entrar</h2><p>Digite seu nome para entrar no RPG.</p><input id="name" placeholder="Nome do personagem"><button onclick="join()">Entrar</button><p class="muted">Até 7 jogadores. A ordem é sorteada automaticamente.</p></section>
+<section id="game" class="hide"><div class="box"><h2>👥 Jogadores</h2><div id="players"></div></div>
+<div class="box"><h2>🎯 Turno</h2><div id="turn"></div><p id="diff"></p><div id="dice">🎲</div><button onclick="roll()">Rolar dado</button></div>
+<div class="box"><h2>💬 Chat / Ação</h2><div id="chat"></div><br><input id="action" placeholder="Escreva sua ação..." onkeydown="if(event.key==='Enter')send()"><button onclick="send()">Enviar</button></div></section></main>
+<script>
+const MAX=7;let me=localStorage.getItem('rpg_me')||'';let s=JSON.parse(localStorage.getItem('rpg_state')||'null')||{players:[],order:[],turn:0,diff:10,chat:[]};
+function save(){localStorage.setItem('rpg_state',JSON.stringify(s));render()}
+function join(){const n=name.value.trim();if(!n)return alert('Digite seu nome.');me=n;localStorage.setItem('rpg_me',me);if(!s.players.includes(n)){if(s.players.length>=MAX)return alert('A partida já tem 7 jogadores.');s.players.push(n);s.order=[...s.players].sort(()=>Math.random()-.5)}save()}
+function render(){joinBox=document.getElementById('join');game=document.getElementById('game');joinBox.classList.toggle('hide',!!me);game.classList.toggle('hide',!me);if(!me)return;players.innerHTML=s.order.map((p,i)=>`<div>${i+1}. ${esc(p)}${i===s.turn?' 🎯':''}</div>`).join('');let cur=s.order[s.turn];turn.innerHTML=cur===me?'<b>É a sua vez!</b>':'É a vez de <b>'+esc(cur||'—')+'</b>.';diff.textContent='Você precisa tirar '+s.diff+' ou mais.';chat.innerHTML=s.chat.map(x=>`<div class="msg"><b>${esc(x.n)}:</b> ${esc(x.t)}</div>`).join('')}
+function roll(){if(s.order[s.turn]!==me)return alert('Espere sua vez.');let d=Math.floor(Math.random()*20)+1,ok=d>=s.diff;document.getElementById('dice').textContent='🎲 '+d;s.chat.push({n:'Sistema',t:me+' rolou '+d+' — '+(ok?'SUCESSO!':'FALHA!')});s.turn=(s.turn+1)%s.order.length;s.diff=10+Math.floor(Math.random()*11);save()}
+function send(){if(s.order[s.turn]!==me)return alert('Espere sua vez.');let a=action.value.trim();if(!a)return;s.chat.push({n:me,t:a});action.value='';save()}
+function esc(x){return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}addEventListener('storage',e=>{if(e.key==='rpg_state'){s=JSON.parse(e.newValue)||s;render()}});render();
+</script></body></html>
